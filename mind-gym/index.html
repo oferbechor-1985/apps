@@ -304,7 +304,7 @@ const T={
 he:{
 brand:'מכון כושר למוח',hello:'שלום, {name}',name_label:'איך לקרוא לך? (לא חובה)',name_ph:'השם שלך',privacy:'הנתונים וההתקדמות שלך נשמרים רק במכשיר הזה. אין חשבון, ושום דבר לא נשלח לאף אחד.',cont:'המשך',download:'הורד קובץ גיבוי',dl_note:'אם הקובץ לא ירד, השתמש בהעתקת הקוד.',nav_home:'אימון',nav_stats:'התקדמות',nav_ach:'הישגים',nav_set:'הגדרות',
 startDaily:'התחל',startCalib:'התחל כיול',subDaily:'אימון יומי',subCalib:'כיול התחלתי',again:'אימון נוסף',
-calibIntro:'סבב כיול קצר, כ-5 דקות, ימדוד את נקודת ההתחלה שלך בששת התחומים. משם הקושי מתאים את עצמו אוטומטית.',
+calibIntro:'סבב כיול קצר, כ-5 עד 7 דקות, ימדוד את נקודת ההתחלה שלך בששת התחומים. משם הקושי מתאים את עצמו אוטומטית.',
 calibNote:'במשחק כיול הקושי משתנה מהר כדי למצוא את הרמה שלך.',
 today_done:'התאמנת היום',today_not:'עוד לא התאמנת היום',streak:'רצף: {d}',days1:'יום אחד',daysN:'{n} ימים',
 gameOf:'משחק {i} מתוך {n}',start:'התחל',next:'הבא',finish:'לסיכום',exit:'יציאה',
@@ -338,7 +338,7 @@ a_perfect:'בלי טעויות',a_perfect_d:'משחק שלם בדיוק של 100
 en:{
 brand:'A gym for your mind',hello:'Hello, {name}',name_label:'What should we call you? (optional)',name_ph:'Your name',privacy:'Your data and progress stay on this device only. No account, and nothing is sent to anyone.',cont:'Continue',download:'Download backup file',dl_note:'If the file did not download, use the copy code button.',nav_home:'Train',nav_stats:'Progress',nav_ach:'Awards',nav_set:'Settings',
 startDaily:'Start',startCalib:'Start calibration',subDaily:'Daily training',subCalib:'Initial calibration',again:'Train again',
-calibIntro:'A short calibration round, about 5 minutes, measures your starting point in all six domains. From there the difficulty adapts automatically.',
+calibIntro:'A short calibration round, about 5 to 7 minutes, measures your starting point in all six domains. From there the difficulty adapts automatically.',
 calibNote:'In calibration the difficulty moves fast to find your level.',
 today_done:'Trained today',today_not:'Not trained yet today',streak:'Streak: {d}',days1:'1 day',daysN:'{n} days',
 gameOf:'Game {i} of {n}',start:'Start',next:'Next',finish:'See summary',exit:'Exit',
@@ -381,6 +381,7 @@ function load(){
       if(o&&o.v===1){
         const s=Object.assign(def(),o);
         if(!o.welcomed&&Array.isArray(o.sessions)&&o.sessions.length)s.welcomed=true;
+        if(s.sessions.length&&s.sessions.every(x=>x.kind==='calib')&&s.ach)['l8','l12','l16','balanced','perfect'].forEach(id=>{delete s.ach[id];});
         return s;
       }
     }
@@ -395,6 +396,7 @@ function t(k,p){
 }
 function daysLabel(n){return n===1?t('days1'):t('daysN',{n});}
 const lvl=g=>state.levels[g]!==undefined?state.levels[g]:4;
+const rlv=g=>(state.plays[g]||[]).filter(p=>!p.calib).length>=3?lvl(g):0;
 const avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
 
 function dayKey(ts){const d=new Date(ts);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -548,7 +550,12 @@ function newRun(g,calib){
   return {
     g,calib,level:calib?4:lvl(g),step:c.step*(calib?1.5:1),n:calib?c.nCal:c.n,
     maxMs:c.maxMs*(calib?.7:1),t0:Date.now(),trials:[],extras:{},
-    more(){return this.trials.length<this.n&&(Date.now()-this.t0<this.maxMs||this.trials.length<4);},
+    more(){
+      const k=this.trials.length,el=Date.now()-this.t0;
+      if(k<this.n)return el<this.maxMs||k<4;
+      if(!this.calib||k>=Math.ceil(this.n*1.5)||el>=this.maxMs*1.5)return false;
+      return this.trials.slice(-3).every(x=>x.ok);
+    },
     push(ok,rt,meta){
       this.trials.push({ok,rt:rt==null?null:rt,lvl:this.level,meta:meta||null});
       this.level=clamp(this.level+(ok?this.step:-this.step*2),1,20);
@@ -592,22 +599,23 @@ const ACH=[
   {id:'s100',cat:'cons',test:c=>state.sessions.length>=100},
   {id:'best',cat:'imp',test:c=>c.newBest},
   {id:'imp10',cat:'imp',test:c=>GAME_IDS.some(g=>{const pl=state.plays[g]||[];if(pl.length<10)return false;return avg(pl.slice(-5).map(p=>p.score))>=1.1*avg(pl.slice(0,5).map(p=>p.score));})},
-  {id:'l8',cat:'mast',test:c=>GAME_IDS.some(g=>lvl(g)>=8)},
-  {id:'l12',cat:'mast',test:c=>GAME_IDS.some(g=>lvl(g)>=12)},
-  {id:'l16',cat:'mast',test:c=>GAME_IDS.some(g=>lvl(g)>=16)},
+  {id:'l8',cat:'mast',test:c=>GAME_IDS.some(g=>rlv(g)>=8)},
+  {id:'l12',cat:'mast',test:c=>GAME_IDS.some(g=>rlv(g)>=12)},
+  {id:'l16',cat:'mast',test:c=>GAME_IDS.some(g=>rlv(g)>=16)},
   {id:'perfect',cat:'mast',test:c=>c.perfect},
-  {id:'balanced',cat:'mast',test:c=>GAME_IDS.every(g=>(state.plays[g]||[]).length&&lvl(g)>=8)}
+  {id:'balanced',cat:'mast',test:c=>GAME_IDS.every(g=>rlv(g)>=8)}
 ];
 function evalAch(session,results){
   const ctx={
     streak:streakInfo().n,
     newBest:results.some(r=>r.best),
-    perfect:results.some(r=>r.acc===1&&r.n>=8),
+    perfect:results.some(r=>!r.calib&&r.acc===1&&r.n>=8),
     weakPlayed:session.kind!=='calib'&&!!session.weakest&&results.some(r=>r.g===session.weakest)
   };
   const out=[];
   for(const a of ACH){
     if(state.ach[a.id])continue;
+    if(session.kind==='calib'&&a.cat==='mast')continue;
     if(a.test(ctx)){state.ach[a.id]=session.ts;out.push(a.id);}
   }
   return out;
